@@ -84,7 +84,7 @@ services:
       KAFKA_SSL_KEY_CREDENTIALS: broker_sslkey_creds
       #KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.broker.truststore.pkcs12
       #KAFKA_SSL_TRUSTSTORE_CREDENTIALS: broker_truststore_creds
-      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: "HTTPS"
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
       #KAFKA_SSL_CLIENT_AUTH: "required"
     volumes:
       - $PWD/secrets/broker-creds:/etc/kafka/secrets
@@ -132,7 +132,7 @@ services:
       KAFKA_SSL_KEY_CREDENTIALS: broker2_sslkey_creds
       #KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.broker2.truststore.pkcs12
       #KAFKA_SSL_TRUSTSTORE_CREDENTIALS: broker2_truststore_creds
-      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: "HTTPS"
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
       #KAFKA_SSL_CLIENT_AUTH: "required"
     volumes:
       - $PWD/secrets/broker2-creds:/etc/kafka/secrets
@@ -180,7 +180,7 @@ services:
       KAFKA_SSL_KEY_CREDENTIALS: broker3_sslkey_creds
       #KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.broker3.truststore.pkcs12
       #KAFKA_SSL_TRUSTSTORE_CREDENTIALS: broker3_truststore_creds
-      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: "HTTPS"
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
       #KAFKA_SSL_CLIENT_AUTH: "required"
     volumes:
       - $PWD/secrets/broker3-creds:/etc/kafka/secrets
@@ -188,6 +188,296 @@ services:
       - $PWD/kafka-ce/broker3/data:/var/lib/kafka/data
     restart: always        
   
+  ####################
+  # schema-registry
+  ####################
+  schema-registry:
+    image: confluentinc/cp-schema-registry:${KAFKA_VERSION}
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      - zookeeper
+      - broker
+    networks:
+      - backend
+    ports:
+      - ${SCHEMA_REGISTRY_PORT}:8081
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:${SCHEMA_REGISTRY_PORT}
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: WARN
+      SCHEMA_REGISTRY_TOOLS_LOG4J_LOGLEVEL: ERROR
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: SSL
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+    volumes:
+      - $PWD/secrets/client-creds:/client-creds
+      - $PWD/kafka-ce/schema-registry/data:/data
+    restart: always
+
+  ####################
+  # connect
+  ####################
+  connect:
+    image: confluentinc/cp-kafka-connect:${KAFKA_VERSION}
+    hostname: connect
+    container_name: connect
+    depends_on:
+      - zookeeper
+      - broker
+      - schema-registry
+    networks:
+      - backend
+    ports:
+      - ${CONNECT_PORT}:8083
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_GROUP_ID: connect-distributed-group
+      CONNECT_CONFIG_STORAGE_TOPIC: _kafka-connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _kafka-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _kafka-connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMA_REGISTRY_PORT}
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      # CLASSPATH required due to CC-2422
+      CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-${KAFKA_VERSION}.jar
+      CONNECT_PRODUCER_INTERCEPTOR_CLASSES: io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor
+      CONNECT_CONSUMER_INTERCEPTOR_CLASSES: io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_LOG4J_LOGGERS: org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
+      CONNECT_LOG4J_ROOT_LOGLEVEL: WARN
+      CONNECT_TOOLS_LOG4J_LOGLEVEL: ERROR
+      CONNECT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      CONNECT_SECURITY_PROTOCOL: SSL
+      CONNECT_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      CONNECT_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+      CONNECT_PRODUCER_BOOTSTRAP_SERVERS: SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      CONNECT_PRODUCER_SECURITY_PROTOCOL: SSL
+      CONNECT_PRODUCER_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      CONNECT_PRODUCER_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+      CONNECT_CONSUMER_BOOTSTRAP_SERVERS: SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      CONNECT_CONSUMER_SECURITY_PROTOCOL: SSL
+      CONNECT_CONSUMER_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      CONNECT_CONSUMER_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+    command: 
+      - bash 
+      - -c 
+      - |
+        echo "Installing connector plugins"
+        confluent-hub install --no-prompt confluentinc/kafka-connect-jdbc:${KAFKA_CONNECT_JDBC_VERSION}
+        confluent-hub install --no-prompt jcustenborder/kafka-connect-spooldir:${KAFKA_CONNECT_SPOOLDIR_VERSION}
+        confluent-hub install --no-prompt neo4j/kafka-connect-neo4j:${KAFKA_CONNECT_NEO4J_VERSION}
+        confluent-hub install --no-prompt debezium/debezium-connector-postgresql:${DEBEZIUM_POSTGRESQL_CDC_SOURCE_CONNECTOR_VERSION}
+        confluent-hub install --no-prompt streamthoughts/kafka-connect-file-pulse:${KAFKA_CONNECT_FILEPULSE_VERSION}
+        #
+        # -----------
+        # Launch the Kafka Connect worker
+        /etc/confluent/docker/run &
+        #
+        # Don't exit
+        sleep infinity
+    volumes:
+      - $PWD/secrets/client-creds:/client-creds
+      - $PWD/kafka-ce/connect/plugins:/usr/share/confluent-hub-components
+      - $PWD/kafka-ce/connect/data:/data
+    restart: always
+
+  ####################
+  # connect2
+  ####################
+  connect2:
+    image: confluentinc/cp-kafka-connect:${KAFKA_VERSION}
+    hostname: connect2
+    container_name: connect2
+    depends_on:
+      - zookeeper
+      - broker
+      - schema-registry
+      - connect
+    networks:
+      - backend
+    ports:
+      - ${CONNECT2_PORT}:8083
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect2
+      CONNECT_GROUP_ID: connect-distributed-group
+      CONNECT_CONFIG_STORAGE_TOPIC: _kafka-connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _kafka-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _kafka-connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMA_REGISTRY_PORT}
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      # CLASSPATH required due to CC-2422
+      CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-${KAFKA_VERSION}.jar
+      CONNECT_PRODUCER_INTERCEPTOR_CLASSES: io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor
+      CONNECT_CONSUMER_INTERCEPTOR_CLASSES: io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_LOG4J_LOGGERS: org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
+      CONNECT_LOG4J_ROOT_LOGLEVEL: WARN
+      CONNECT_TOOLS_LOG4J_LOGLEVEL: ERROR
+      CONNECT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      CONNECT_SECURITY_PROTOCOL: SSL
+      CONNECT_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      CONNECT_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+      CONNECT_PRODUCER_BOOTSTRAP_SERVERS: SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      CONNECT_PRODUCER_SECURITY_PROTOCOL: SSL
+      CONNECT_PRODUCER_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      CONNECT_PRODUCER_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+      CONNECT_CONSUMER_BOOTSTRAP_SERVERS: SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      CONNECT_CONSUMER_SECURITY_PROTOCOL: SSL
+      CONNECT_CONSUMER_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      CONNECT_CONSUMER_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+    command: 
+      - bash 
+      - -c 
+      - |
+        echo "Installing connector plugins"
+        confluent-hub install --no-prompt confluentinc/kafka-connect-jdbc:${KAFKA_CONNECT_JDBC_VERSION}
+        confluent-hub install --no-prompt jcustenborder/kafka-connect-spooldir:${KAFKA_CONNECT_SPOOLDIR_VERSION}
+        confluent-hub install --no-prompt neo4j/kafka-connect-neo4j:${KAFKA_CONNECT_NEO4J_VERSION}
+        confluent-hub install --no-prompt debezium/debezium-connector-postgresql:${DEBEZIUM_POSTGRESQL_CDC_SOURCE_CONNECTOR_VERSION}
+        confluent-hub install --no-prompt streamthoughts/kafka-connect-file-pulse:${KAFKA_CONNECT_FILEPULSE_VERSION}
+        #
+        # -----------
+        # Launch the Kafka Connect worker
+        /etc/confluent/docker/run &
+        #
+        # Don't exit
+        sleep infinity
+    volumes:
+      - $PWD/secrets/client-creds:/client-creds
+      - $PWD/kafka-ce/connect/plugins:/usr/share/confluent-hub-components
+      - $PWD/kafka-ce/connect/data:/data
+    restart: always
+
+  ####################
+  # connect3
+  ####################
+  connect3:
+    image: confluentinc/cp-kafka-connect:${KAFKA_VERSION}
+    hostname: connect3
+    container_name: connect3
+    depends_on:
+      - zookeeper
+      - broker
+      - schema-registry
+      - connect
+    networks:
+      - backend
+    ports:
+      - ${CONNECT3_PORT}:8083
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS:  SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect3
+      CONNECT_GROUP_ID: connect-distributed-group
+      CONNECT_CONFIG_STORAGE_TOPIC: _kafka-connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _kafka-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _kafka-connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMA_REGISTRY_PORT}
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      # CLASSPATH required due to CC-2422
+      CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-${KAFKA_VERSION}.jar
+      CONNECT_PRODUCER_INTERCEPTOR_CLASSES: io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor
+      CONNECT_CONSUMER_INTERCEPTOR_CLASSES: io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_LOG4J_LOGGERS: org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
+      CONNECT_LOG4J_ROOT_LOGLEVEL: WARN
+      CONNECT_TOOLS_LOG4J_LOGLEVEL: ERROR
+      CONNECT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      CONNECT_SECURITY_PROTOCOL: SSL
+      CONNECT_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      CONNECT_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+      CONNECT_PRODUCER_BOOTSTRAP_SERVERS: SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      CONNECT_PRODUCER_SECURITY_PROTOCOL: SSL
+      CONNECT_PRODUCER_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      CONNECT_PRODUCER_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+      CONNECT_CONSUMER_BOOTSTRAP_SERVERS: SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      CONNECT_CONSUMER_SECURITY_PROTOCOL: SSL
+      CONNECT_CONSUMER_SSL_TRUSTSTORE_LOCATION: /client-creds/kafka.client.truststore.pkcs12
+      CONNECT_CONSUMER_SSL_TRUSTSTORE_PASSWORD: ${PASS}
+    command: 
+      - bash 
+      - -c 
+      - |
+        echo "Installing connector plugins"
+        confluent-hub install --no-prompt confluentinc/kafka-connect-jdbc:${KAFKA_CONNECT_JDBC_VERSION}
+        confluent-hub install --no-prompt jcustenborder/kafka-connect-spooldir:${KAFKA_CONNECT_SPOOLDIR_VERSION}
+        confluent-hub install --no-prompt neo4j/kafka-connect-neo4j:${KAFKA_CONNECT_NEO4J_VERSION}
+        confluent-hub install --no-prompt debezium/debezium-connector-postgresql:${DEBEZIUM_POSTGRESQL_CDC_SOURCE_CONNECTOR_VERSION}
+        confluent-hub install --no-prompt streamthoughts/kafka-connect-file-pulse:${KAFKA_CONNECT_FILEPULSE_VERSION}
+        #
+        # -----------
+        # Launch the Kafka Connect worker
+        /etc/confluent/docker/run &
+        #
+        # Don't exit
+        sleep infinity
+    volumes:
+      - $PWD/secrets/client-creds:/client-creds
+      - $PWD/kafka-ce/connect/plugins:/usr/share/confluent-hub-components
+      - $PWD/kafka-ce/connect/data:/data
+    restart: always
+
+  ####################
+  # kafka-ui
+  ####################
+  kafka-ui:
+    hostname: kafka-ui
+    container_name: kafka-ui
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - ${KAFKA_UI_PORT}:8080
+    networks:
+      - backend
+    depends_on:
+      - zookeeper
+      - broker
+      - schema-registry
+      - connect
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:${BROKER_INTERNAL_PORT},broker2:${BROKER2_INTERNAL_PORT},broker3:${BROKER3_INTERNAL_PORT}
+      KAFKA_CLUSTERS_0_METRICS_PORT: ${KAFKA_UI_METRIC_PORT}
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:${SCHEMA_REGISTRY_PORT}
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://connect:${CONNECT_PORT}
+      KAFKA_CLUSTERS_0_KSQLDBSERVER: http://ksqldb:${KSQLDB_PORT}
+      KAFKA_CLUSTERS_0_READONLY: ${KAFKA_UI_READONLY}
+      AUTH_TYPE: ${KAFKA_UI_AUTH_TYPE}
+      SPRING_SECURITY_USER_NAME: ${KAFKA_UI_SPRING_SECURITY_USER_NAME}
+      SPRING_SECURITY_USER_PASSWORD: ${PASS}      
+    restart: always
+
+
 ################################################################################
 #
 # networks

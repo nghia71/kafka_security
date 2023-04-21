@@ -11,4 +11,6 @@ set -e -u
 ./utils/create_volumes.sh connect kafka-ce/connect/data kafka-ce/connect/plugins
 ./utils/create_volumes.sh ksqldb-cli kafka-ce/ksqldb-cli/src kafka-ce/ksqldb-cli/test
 
+./utils/create_volumes.sh filepulse kafka-ce/connect/data/filepulse/xml
+
 echo Setup completed ✅

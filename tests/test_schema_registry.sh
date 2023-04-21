@@ -12,6 +12,8 @@ no_messages=12
 broker_container_name=broker
 broker_internal_host=broker
 broker_internal_port=${BROKER_INTERNAL_PORT}
+broker_local_port=${BROKER_LOCAL_PORT}
+broker_hostname=${HOSTNAME}
 
 schema_registry_container=schema-registry
 schema_registry_internal_host=schema-registry
@@ -53,14 +55,15 @@ value_schema_id=$(curl --silent -X GET http://${schema_registry_local_host}:${sc
 
 echo "Produce ${no_messages} messages ..." 
 docker exec ${schema_registry_container} bash -c \
-    "kafka-avro-console-producer  --broker-list $broker_internal_host:$broker_internal_port --topic $topic --property parse.key=true --property key.schema.id=$key_schema_id --property value.schema.id=$value_schema_id < /data/$data_file"
+    "kafka-avro-console-producer  --broker-list ${broker_hostname}:${broker_local_port} --topic $topic --property parse.key=true --property key.schema.id=$key_schema_id --property value.schema.id=$value_schema_id --producer.config /client-creds/kafka-client.properties < /data/$data_file"
 echo ''
 
 echo "Consume messages ..." 
 docker exec -it ${schema_registry_container} kafka-avro-console-consumer  \
-    --bootstrap-server ${broker_internal_host}:${broker_internal_port} \
+    --bootstrap-server ${broker_hostname}:${broker_local_port} \
     --topic ${topic} --from-beginning --max-messages ${no_messages} \
-    --property schema.registry.url=http://${schema_registry_internal_host}:${schema_registry_port}
+    --property schema.registry.url=http://${schema_registry_internal_host}:${schema_registry_port} \
+    --consumer.config /client-creds/kafka-client.properties
 echo ''
 
 ./scripts/delete_subject.sh ${topic}-key
