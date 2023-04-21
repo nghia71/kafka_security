@@ -1,0 +1,200 @@
+version: "3.8"
+
+##############################################################################
+#
+# services
+#
+# - Uses .env for environment variables
+# - Kafka Cluster, Community Edition, Starter version (see below for details)
+#
+##############################################################################
+
+services:
+
+##############################################################################
+#
+# Kafka Cluster, Community Edition, Starter version
+# -------------------------------------------------
+# - zookeeper
+# - broker
+# - schema-registry
+# - connect
+# - kafka-ui
+#
+##############################################################################
+
+  ####################
+  # zookeeper
+  ####################
+  zookeeper:
+    image: confluentinc/cp-zookeeper:${KAFKA_VERSION}
+    hostname: zookeeper
+    container_name: zookeeper
+    networks:
+      - backend
+    ports:
+      - ${ZOOKEEPER_CLIENT_PORT}:2181
+    environment:
+      ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT}
+      ZOOKEEPER_TICK_TIME: ${ZOOKEEPER_TICK_TIME}
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: WARN
+      ZOOKEEPER_TOOLS_LOG4J_LOGLEVEL: ERROR
+    volumes:
+      - $PWD/kafka-ce/zk/data:/var/lib/zookeeper/data
+      - $PWD/kafka-ce/zk/txn-logs:/var/lib/zookeeper/log
+    restart: always
+
+  ####################
+  # broker
+  ####################
+  broker:
+    image: confluentinc/cp-kafka:${KAFKA_VERSION}
+    hostname: broker
+    container_name: broker
+    depends_on:
+      - zookeeper
+    networks:
+      - backend
+    ports:
+      - ${BROKER_EXTERNAL_PORT}:${BROKER_EXTERNAL_PORT}
+      - ${BROKER_LOCAL_PORT}:${BROKER_LOCAL_PORT}
+      - ${BROKER_JMX_PORT}:9101
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:${ZOOKEEPER_CLIENT_PORT}
+      KAFKA_LISTENERS: BROKER://0.0.0.0:${BROKER_INTERNAL_PORT},SSL://0.0.0.0:${BROKER_LOCAL_PORT}
+      KAFKA_ADVERTISED_LISTENERS: BROKER://broker:${BROKER_INTERNAL_PORT},SSL://${HOSTNAME}:${BROKER_LOCAL_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: BROKER:PLAINTEXT,SSL:SSL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 10000
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: broker
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMA_REGISTRY_PORT}
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+      KAFKA_TOOLS_LOG4J_LOGLEVEL: ERROR
+      KAFKA_LOG_RETENTION_MS: -1
+      KAFKA_LOG4J_LOGGERS: org.apache.zookeeper=WARN,org.apache.kafka=WARN,kafka=WARN,kafka.cluster=WARN,kafka.controller=WARN,kafka.coordinator=WARN,kafka.log=WARN,kafka.server=WARN,kafka.zookeeper=WARN,state.change.logger=WARN
+      KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.broker.keystore.pkcs12
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: broker_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: broker_sslkey_creds
+      #KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.broker.truststore.pkcs12
+      #KAFKA_SSL_TRUSTSTORE_CREDENTIALS: broker_truststore_creds
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: "HTTPS"
+      #KAFKA_SSL_CLIENT_AUTH: "required"
+    volumes:
+      - $PWD/secrets/broker-creds:/etc/kafka/secrets
+      - $PWD/secrets/client-creds:/client-creds
+      - $PWD/kafka-ce/broker/data:/var/lib/kafka/data
+    restart: always
+
+  ####################
+  # broker2
+  ####################
+  broker2:
+    image: confluentinc/cp-kafka:${KAFKA_VERSION}
+    hostname: broker2
+    container_name: broker2
+    depends_on:
+      - zookeeper
+    networks:
+      - backend
+    ports:
+      - ${BROKER2_EXTERNAL_PORT}:${BROKER2_EXTERNAL_PORT}
+      - ${BROKER2_LOCAL_PORT}:${BROKER2_LOCAL_PORT}
+      - ${BROKER2_JMX_PORT}:9101
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:${ZOOKEEPER_CLIENT_PORT}
+      KAFKA_LISTENERS: BROKER://0.0.0.0:${BROKER2_INTERNAL_PORT},SSL://0.0.0.0:${BROKER2_LOCAL_PORT}
+      KAFKA_ADVERTISED_LISTENERS: BROKER://broker2:${BROKER2_INTERNAL_PORT},SSL://${HOSTNAME}:${BROKER2_LOCAL_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: BROKER:PLAINTEXT,SSL:SSL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 10000
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: broker2
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMA_REGISTRY_PORT}
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+      KAFKA_TOOLS_LOG4J_LOGLEVEL: ERROR
+      KAFKA_LOG_RETENTION_MS: -1
+      KAFKA_LOG4J_LOGGERS: org.apache.zookeeper=WARN,org.apache.kafka=WARN,kafka=WARN,kafka.cluster=WARN,kafka.controller=WARN,kafka.coordinator=WARN,kafka.log=WARN,kafka.server=WARN,kafka.zookeeper=WARN,state.change.logger=WARN
+      KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.broker2.keystore.pkcs12
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: broker2_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: broker2_sslkey_creds
+      #KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.broker2.truststore.pkcs12
+      #KAFKA_SSL_TRUSTSTORE_CREDENTIALS: broker2_truststore_creds
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: "HTTPS"
+      #KAFKA_SSL_CLIENT_AUTH: "required"
+    volumes:
+      - $PWD/secrets/broker2-creds:/etc/kafka/secrets
+      - $PWD/secrets/client-creds:/client-creds
+      - $PWD/kafka-ce/broker2/data:/var/lib/kafka/data
+    restart: always   
+
+  ####################
+  # broker3
+  ####################
+  broker3:
+    image: confluentinc/cp-kafka:${KAFKA_VERSION}
+    hostname: broker3
+    container_name: broker3
+    depends_on:
+      - zookeeper
+    networks:
+      - backend
+    ports:
+      - ${BROKER3_EXTERNAL_PORT}:${BROKER3_EXTERNAL_PORT}
+      - ${BROKER3_LOCAL_PORT}:${BROKER3_LOCAL_PORT}
+      - ${BROKER3_JMX_PORT}:9101
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:${ZOOKEEPER_CLIENT_PORT}
+      KAFKA_LISTENERS: BROKER://0.0.0.0:${BROKER3_INTERNAL_PORT},SSL://0.0.0.0:${BROKER3_LOCAL_PORT}
+      KAFKA_ADVERTISED_LISTENERS: BROKER://broker3:${BROKER3_INTERNAL_PORT},SSL://${HOSTNAME}:${BROKER3_LOCAL_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: BROKER:PLAINTEXT,SSL:SSL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 10000
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${REPLICATION_FACTOR}
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: broker3
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMA_REGISTRY_PORT}
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+      KAFKA_TOOLS_LOG4J_LOGLEVEL: ERROR
+      KAFKA_LOG_RETENTION_MS: -1
+      KAFKA_LOG4J_LOGGERS: org.apache.zookeeper=WARN,org.apache.kafka=WARN,kafka=WARN,kafka.cluster=WARN,kafka.controller=WARN,kafka.coordinator=WARN,kafka.log=WARN,kafka.server=WARN,kafka.zookeeper=WARN,state.change.logger=WARN
+      KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.broker3.keystore.pkcs12
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: broker3_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: broker3_sslkey_creds
+      #KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.broker3.truststore.pkcs12
+      #KAFKA_SSL_TRUSTSTORE_CREDENTIALS: broker3_truststore_creds
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: "HTTPS"
+      #KAFKA_SSL_CLIENT_AUTH: "required"
+    volumes:
+      - $PWD/secrets/broker3-creds:/etc/kafka/secrets
+      - $PWD/secrets/client-creds:/client-creds
+      - $PWD/kafka-ce/broker3/data:/var/lib/kafka/data
+    restart: always        
+  
+################################################################################
+#
+# networks
+# - backend
+#
+################################################################################
+networks:
+  backend:
+    name: backend
+
